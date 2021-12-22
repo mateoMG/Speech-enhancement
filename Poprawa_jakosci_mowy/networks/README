@@ -1,6 +1,4 @@
-** download **
-https://www.itu.int/rec/T-REC-P.862-200511-I!Amd2/en
-** compile **
-gcc -o pesq *.c -lm
-** install **
-add directory with 'pseq' executable to PATH environmental variable
+This neural network based on : Szymon Drgas and Tomasz Grzywalski. “Speech enhancement by iterating
+forward pass through U-net”. In: Signal Processing: Algorithms,
+Architectures, Arrangements, and Applications (SPA) (2020), pp. 157–
+162. 
