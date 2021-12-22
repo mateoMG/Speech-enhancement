@@ -1,5 +1,0 @@
-sr: 8000
-window: hann
-win_length: 200
-hop_length: 80
-n_fft: 512
