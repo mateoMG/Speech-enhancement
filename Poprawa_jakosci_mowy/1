@@ -1,0 +1,4 @@
+data_path: /net/archive/groups/plggvoice
+output_path: /net/archive/groups/plggvoice/mat
+log_path: ../unet_logs
+dump_path: ../dumps

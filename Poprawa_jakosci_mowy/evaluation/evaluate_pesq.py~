@@ -1,0 +1,107 @@
+import sys
+import os
+
+import h5py
+import yaml
+import numpy as np
+import cPickle as pickle
+
+from reco import testsdr
+from stoi2 import stoi as teststoi
+from stoi2 import metrics
+import librosa
+
+import vqmetrics
+
+def get_default_pars():
+    pars = {'properties_file': '../properties.yaml'}
+    return pars
+
+def read_hdf5(filename):
+    items = list()
+    with h5py.File(filename, 'r') as f:
+        stft_pars = yaml.load(f.attrs['stft_pars'])
+        n_items = len(f.keys())
+        for mix_idx in range(n_items):
+            item = dict()
+            #We are converting to db scale and also make rough normalization to range near -1:1
+            item['x_mag'] = f['mix_' + str(mix_idx) + '/x_mag'][...]
+            item['x_phase'] = f['mix_' + str(mix_idx) + '/x_phase'][...]
+            item['y_mag'] = f['mix_' + str(mix_idx) + '/y_mag'][...]
+            item['y_phase'] = f['mix_' + str(mix_idx) + '/y_phase'][...]
+            item['n_mag'] = f['mix_' + str(mix_idx) + '/n_mag'][...]
+            item['n_phase'] = f['mix_' + str(mix_idx) + '/n_phase'][...]
+
+            items.append(item)
+    return items
+
+if __name__ == '__main__':
+    if len(sys.argv) == 1:
+        pars = get_default_pars()
+    elif len(sys.argv) == 2:
+        pars = yaml.load(open(sys.argv[1], 'r'))
+
+    paths = yaml.load(open(pars['properties_file'], 'r'))
+    TEST_HDF5_FILE = os.path.join(paths['data_path'], 'mixes_tst.hdf5')
+    OUTPUT_FILE = os.path.join(paths['output_path'], "x_pred.pkl")
+
+    mixtures = read_hdf5(TEST_HDF5_FILE)
+    predictions = pickle.load(open(OUTPUT_FILE, "rb"))
+
+    assert(len(mixtures) == len(predictions))
+
+    sdr_old = 0.0
+    stoi = 0.0
+    sdr = 0.0
+    sir = 0.0
+    sar = 0.0
+    pesq = 0.0
+    for idx in range(len(predictions)):
+        x_mag_pred = mixtures[idx]['y_mag']
+        x_mag_pred[:256] = np.abs(predictions[idx])
+
+        x_phase_pred = mixtures[idx]['y_phase']
+        x_phase_pred[:256] = np.angle(predictions[idx])
+
+
+        sdr_old += testsdr(x_mag_pred, x_phase_pred,
+                   mixtures[idx]['x_mag'], mixtures[idx]['x_phase'])
+
+        complex_noisy = mixtures[idx]['y_mag']*np.exp(1j*mixtures[idx]['y_phase'])
+        noisy_wave = librosa.core.istft(complex_noisy, hop_length=80, win_length=200, window='hann')
+#       noisy_wave /= np.max(np.abs(noisy_wave))
+#       librosa.output.write_wav("./dumps/{}_0_noisy.wav".format(str(idx+1).zfill(3)), noisy_wave, 8000)
+
+        complex_clean = x_mag_pred*np.exp(1j*x_phase_pred)
+        clean_wave = librosa.core.istft(complex_clean, hop_length=80, win_length=200, window='hann')
+        clean_wave /= np.max(np.abs(clean_wave))
+        filename_clean = "../../dumps/{}_1_clean.wav".format(str(idx+1).zfill(3))
+        librosa.output.write_wav(filename_clean, clean_wave, 8000)
+
+        complex_original = mixtures[idx]['x_mag']*np.exp(1j*mixtures[idx]['x_phase'])
+        original_wave = librosa.core.istft(complex_original, hop_length=80, win_length=200, window='hann')
+        original_wave /= np.max(np.abs(original_wave))
+        filename_orig = "../../dumps/{}_2_original.wav".format(str(idx+1).zfill(3))
+        librosa.output.write_wav(filename_orig, original_wave, 8000)
+
+        complex_noise = mixtures[idx]['n_mag']*np.exp(1j*mixtures[idx]['n_phase'])
+        noise_wave = librosa.core.istft(complex_noise, hop_length=80, win_length=200, window='hann')
+        #noise_wave /= np.max(np.abs(noise_wave))
+        
+        #librosa.output.write_wav("./dumps/{}_3_noise.wav".format(str(idx+1).zfill(3)), noise_wave, 8000)
+
+        stoi += teststoi(clean_wave, original_wave, 8000)
+
+        pesq_idx = vqmetrics.pesq(filename_orig, filename_clean, 8000, 'pesq')[0]
+
+        sd, si, sa = metrics(original_wave, clean_wave, noise_wave)
+        sdr += sd
+        sir += si
+        sar += sa
+        pesq += pesq_idx
+
+    print "SDR:       {}".format(sdr_old/len(predictions))
+    print "SDR (alt): {}".format(sdr/len(predictions))
+    print "SIR:       {}".format(sir/len(predictions))
+    print "SAR:       {}".format(sar/len(predictions))
+    print "STOI:      {}".format(stoi/len(predictions))
